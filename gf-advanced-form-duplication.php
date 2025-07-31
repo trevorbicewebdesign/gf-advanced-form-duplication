@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name: Gravity Forms Advanced Form Duplication
+ * Plugin Name: GF Advanced Form Duplication
  * Description: Adds a button to duplicate a Gravity Form along with its notifications and payment feeds.
  * Version: 1.0.1
  * Author: Trevor Bice
