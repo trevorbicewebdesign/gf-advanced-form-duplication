@@ -1,10 +1,45 @@
 <?php
 /**
- * Plugin Name: Gravity Forms Advanced Form Duplcation
+ * Plugin Name: Gravity Forms Advanced Form Duplication
  * Description: Adds a button to duplicate a Gravity Form along with its notifications and payment feeds.
- * Version: 1.0
+ * Version: 1.0.1
  * Author: Trevor Bice
  * License: GPL2+
+ *
+ * This plugin extends Gravity Forms by providing an advanced form duplication feature.
+ * When activated, it adds a "Clone with Payments" action to each form in the Gravity Forms admin.
+ * The duplication process includes:
+ *   - Cloning the form fields, preserving field types, labels, and conditional logic.
+ *   - Cloning notifications, remapping field IDs and merge tags to match the new form.
+ *   - Cloning confirmations, including their conditional logic and merge tags.
+ *   - Cloning payment feeds (from add-ons), updating all field references in feed meta.
+ *   - Cloning the entries grid meta for the new form.
+ *
+ * Main Classes:
+ *   - GF_Clone_With_Payments_Cloner: Handles the logic for cloning forms, fields, notifications, confirmations, and payment feeds.
+ *   - GF_Clone_With_Payments_Plugin: Integrates with the Gravity Forms admin UI, adds the clone action, and handles clone requests.
+ *
+ * Key Methods:
+ *   - clone_form($source_form_id): Orchestrates the cloning process for a given form ID.
+ *   - fix_input_ids($fields): Ensures sub-input IDs are updated to match new field IDs.
+ *   - copy_notifications($source_form_id, $new_form_id, $field_map): Clones and remaps notifications.
+ *   - copy_confirmations($form, $new_form_id, $field_map): Clones and remaps confirmations.
+ *   - copy_payment_feeds($source_form_id, $new_form_id): Clones payment feeds and remaps field references.
+ *   - remap_all_field_ids_recursive($data, $id_map): Recursively updates all field ID references in arrays.
+ *   - remap_merge_tags($text, $id_map): Updates merge tags in notification/confirmation text to use new field IDs.
+ *   - update_fields_conditional_logic($fields, $field_map): Updates conditional logic rules in cloned fields.
+ *
+ * UI Integration:
+ *   - Adds a "Clone with Payments" link to the form actions menu.
+ *   - Displays a confirmation modal before cloning.
+ *   - Redirects to the new form edit page after cloning.
+ *
+ * Security:
+ *   - Uses WordPress nonces and capability checks to restrict cloning to authorized users.
+ *
+ * Requirements:
+ *   - Gravity Forms must be installed and active.
+ *   - User must have 'manage_options' capability to clone forms.
  */
 
 if (!defined('ABSPATH')) {
@@ -89,9 +124,16 @@ class GF_Clone_With_Payments_Cloner
         return $new_form_id;
     }
 
-
-
-
+    /**
+     * Fixes the input IDs for each field in the provided array.
+     *
+     * Iterates through each field and its inputs, ensuring that each input's ID
+     * is correctly formatted as "{field_id}.{suffix}" if a suffix exists, or just "{field_id}" otherwise.
+     * Handles both array and object representations of inputs.
+     *
+     * @param array $fields Array of field objects, each potentially containing an 'inputs' property.
+     * @return array The modified array of fields with corrected input IDs.
+     */
     protected function fix_input_ids($fields)
     {
         foreach ($fields as &$field) {
@@ -115,9 +157,21 @@ class GF_Clone_With_Payments_Cloner
     }
 
 
+    /**
+     * Copies notifications from a source Gravity Form to a new form, remapping field IDs and merge tags as necessary.
+     *
+     * This method retrieves all notifications associated with the source form, updates any conditional logic,
+     * routing rules, and merge tags to reference the new field IDs as defined in the provided field map,
+     * and then saves the updated notifications to the new form.
+     *
+     * @param int   $source_form_id The ID of the source form from which notifications are copied.
+     * @param int   $new_form_id    The ID of the new form to which notifications are copied.
+     * @param array $field_map      An associative array mapping old field IDs to new field IDs.
+     *
+     * @return void
+     */
     protected function copy_notifications($source_form_id, $new_form_id, $field_map)
     {
-        error_log('FIELD MAP: ' . print_r($field_map, true));
         $notifications = GFCommon::get_notifications('form_submission', $source_form_id);
         foreach ($notifications as $notification) {
             // Remap conditional logic
@@ -144,15 +198,24 @@ class GF_Clone_With_Payments_Cloner
                     $notification[$key] = $this->remap_merge_tags($notification[$key], $field_map);
                 }
             }
-            error_log('NEW SUBJECT: ' . $notification['subject']);
-            error_log('NEW MESSAGE: ' . $notification['message']);
 
             $notification['form_id'] = $new_form_id;
-            error_log('CLONED NOTIFICATION: ' . print_r($notification, true));
             GFNotifications::update_notification($new_form_id, $notification);
         }
     }
 
+    /**
+     * Copies the 'entries_grid_meta' metadata from a source Gravity Form to a new form.
+     *
+     * This method retrieves the 'entries_grid_meta' value from the source form's metadata
+     * and updates the new form's metadata with this value. It uses the WordPress $wpdb object
+     * to interact with the database.
+     *
+     * @param int $source_form_id The ID of the source form from which to copy the metadata.
+     * @param int $new_form_id    The ID of the new form to which the metadata will be copied.
+     *
+     * @global wpdb $wpdb WordPress database abstraction object.
+     */
     protected function copy_entries_grid_meta($source_form_id, $new_form_id)
     {
         global $wpdb;
@@ -162,7 +225,6 @@ class GF_Clone_With_Payments_Cloner
             $wpdb->prepare("SELECT entries_grid_meta FROM $meta_table WHERE form_id = %d", $source_form_id),
             ARRAY_A
         );
-        error_log("ENTRIES_GRID_META - SOURCE ($source_form_id): " . print_r($old_row, true));
 
         if (!empty($old_row) && isset($old_row['entries_grid_meta'])) {
             $result = $wpdb->update(
@@ -170,12 +232,22 @@ class GF_Clone_With_Payments_Cloner
                 ['entries_grid_meta' => $old_row['entries_grid_meta']],
                 ['form_id' => $new_form_id]
             );
-            error_log("ENTRIES_GRID_META - CLONED TO ($new_form_id): " . $old_row['entries_grid_meta'] . " (Update result: $result)");
-        } else {
-            error_log("ENTRIES_GRID_META - NOT FOUND on source form $source_form_id");
-        }
+        } 
     }
 
+    /**
+     * Copies and remaps the confirmations from the original form to a new form.
+     *
+     * This method duplicates the confirmations array from the given form, remapping any field IDs
+     * in conditional logic and merge tags according to the provided field map. It then updates
+     * the new form with the remapped confirmations.
+     *
+     * @param array $form The original form array containing confirmations to copy.
+     * @param int $new_form_id The ID of the new form to which confirmations will be copied.
+     * @param array $field_map An associative array mapping old field IDs to new field IDs.
+     *
+     * @return void
+     */
     protected function copy_confirmations($form, $new_form_id, $field_map)
     {
         if (!empty($form['confirmations'])) {
@@ -204,6 +276,16 @@ class GF_Clone_With_Payments_Cloner
         }
     }
 
+    /**
+     * Copies payment feeds from a source Gravity Forms form to a new form, updating all field references.
+     *
+     * This method retrieves all payment feeds associated with the source form, remaps field IDs (including sub-inputs)
+     * to match the new form's fields, and inserts the updated feeds for the new form. It ensures that all field references
+     * within the feed meta are recursively updated to maintain consistency.
+     *
+     * @param int $source_form_id The ID of the source Gravity Forms form.
+     * @param int $new_form_id    The ID of the new Gravity Forms form to which feeds will be copied.
+     */
     protected function copy_payment_feeds($source_form_id, $new_form_id)
     {
         global $wpdb;
@@ -242,14 +324,8 @@ class GF_Clone_With_Payments_Cloner
             // Decode the meta as an array
             $meta = json_decode($feed['meta'], true);
 
-            // Debug: log meta before remapping
-            error_log('ORIGINAL META: ' . print_r($meta, true));
-
             // Recursively update ALL fieldId references and known field keys
             $meta = $this->remap_all_field_ids_recursive($meta, $field_map);
-
-            // Debug: log meta after remapping
-            error_log('CLONED META: ' . print_r($meta, true));
 
             $feed['meta'] = json_encode($meta);
 
@@ -257,6 +333,18 @@ class GF_Clone_With_Payments_Cloner
         }
     }
 
+    /**
+     * Recursively remaps all field IDs within a given data structure using a provided ID map.
+     *
+     * This function traverses the input data (which can be an array or a nested array) and replaces
+     * any values that match keys in the $id_map with their corresponding mapped values. It also handles
+     * string values containing a dot ('.'), remapping the base part if it exists in the map and preserving the suffix.
+     *
+     * @param mixed $data   The data to process. Can be an array or any value.
+     * @param array $id_map An associative array mapping old field IDs (as strings) to new field IDs.
+     *
+     * @return mixed The data structure with all applicable field IDs remapped.
+     */
     protected function remap_all_field_ids_recursive($data, $id_map)
     {
         if (is_array($data)) {
@@ -289,6 +377,18 @@ class GF_Clone_With_Payments_Cloner
         return $data;
     }
 
+    /**
+     * Remaps merge tags in the given text using the provided ID map.
+     *
+     * This function searches for Gravity Forms-style merge tags in the format
+     * {field_label:field_id[:modifier]} within the input text and replaces the
+     * field_id with a new value from the $id_map if a mapping exists.
+     *
+     * @param string $text   The text containing merge tags to be remapped.
+     * @param array  $id_map An associative array mapping original field IDs to new field IDs.
+     *
+     * @return string The text with merge tags remapped according to the ID map.
+     */
     protected function remap_merge_tags($text, $id_map)
     {
         $result = preg_replace_callback('/\{([^:}]+):([0-9.]+)(:[^}]*)?\}/', function ($matches) use ($id_map) {
@@ -303,8 +403,18 @@ class GF_Clone_With_Payments_Cloner
         error_log("remap_merge_tags INPUT: $text OUTPUT: $result");
         return $result;
     }
+
     /**
-     * Recursively update fieldId references in conditional logic.
+     * Updates conditional logic field IDs within the provided meta array using the given ID map.
+     *
+     * This method searches for specific keys in the meta array that may contain conditional logic
+     * referencing field IDs. If found, it recursively remaps those field IDs according to the provided
+     * mapping array.
+     *
+     * @param array $meta    The meta array potentially containing conditional logic with field IDs.
+     * @param array $id_map  An associative array mapping old field IDs to new field IDs.
+     *
+     * @return array The updated meta array with remapped conditional logic field IDs.
      */
     protected function update_conditional_field_ids($meta, $id_map)
     {
@@ -320,6 +430,17 @@ class GF_Clone_With_Payments_Cloner
         }
         return $meta;
     }
+
+    /**
+     * Recursively remaps field IDs in the given data structure using the provided ID map.
+     *
+     * This function traverses the input data array and replaces any value associated with the 'fieldId' key
+     * with its corresponding value from the $id_map, if available. The function processes nested arrays recursively.
+     *
+     * @param mixed $data   The data structure (array or value) to process.
+     * @param array $id_map An associative array mapping old field IDs (as strings) to new field IDs.
+     * @return mixed        The data structure with field IDs remapped according to $id_map.
+     */
 
     protected function remap_field_ids_recursive($data, $id_map)
     {
@@ -356,6 +477,17 @@ class GF_Clone_With_Payments_Cloner
         return $fields;
     }
 
+    /**
+     * Recursively remaps 'fieldId' values in a conditional logic array using a provided field mapping.
+     *
+     * This function traverses the given conditional logic array, and for each occurrence of a 'fieldId' key,
+     * it replaces its value with the corresponding value from the provided field map. The function processes
+     * nested arrays recursively to ensure all 'fieldId' keys are remapped throughout the structure.
+     *
+     * @param array $logic      The conditional logic array to be remapped.
+     * @param array $field_map  An associative array mapping old field IDs to new field IDs.
+     * @return array            The remapped conditional logic array.
+     */
     protected function remap_conditional_logic_recursive($logic, $field_map)
     {
         if (is_array($logic)) {
@@ -432,6 +564,17 @@ class GF_Clone_With_Payments_Plugin
             <?php
         });
     }
+    /**
+     * Adds a "Clone with Payments" action link to the form actions.
+     *
+     * This method generates a secure action link that allows users with the 'manage_options'
+     * capability to clone a Gravity Forms form along with its payment feeds. The link includes
+     * a nonce for security and is appended to the list of available actions for the specified form.
+     *
+     * @param array $actions Existing array of action links for the form.
+     * @param int $form_id The ID of the Gravity Forms form.
+     * @return array Modified array of action links including the "Clone with Payments" link if permitted.
+     */
     public function add_clone_action_link($actions, $form_id)
     {
         $form_id = absint($form_id);
@@ -460,6 +603,24 @@ class GF_Clone_With_Payments_Plugin
         return $actions;
     }
 
+    /**
+     * Handles the request to clone a Gravity Form.
+     *
+     * This method checks for the required GET parameters, verifies user permissions,
+     * and validates the nonce for security. If all checks pass, it attempts to clone
+     * the specified form using the cloner object. On success, it redirects the user
+     * to the edit page of the newly cloned form. If an error occurs during cloning,
+     * it displays an error message.
+     *
+     * Security:
+     * - Requires 'gfcwp_clone_form' and '_wpnonce' GET parameters.
+     * - User must have 'manage_options' capability.
+     * - Nonce must be valid for the form being cloned.
+     *
+     * Redirects:
+     * - On success, redirects to the edit page of the new form with a 'cloned' flag.
+     * - On failure, displays an error message and halts execution.
+     */
     public function handle_clone_request()
     {
         if (
