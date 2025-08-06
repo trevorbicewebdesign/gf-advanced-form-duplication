@@ -523,10 +523,15 @@ class GF_Clone_With_Payments_Plugin
         add_action('admin_footer', function () {
             ?>
             <div id="gfcwp-clone-modal" title="Confirm Clone" style="display:none;">
-                <p>Are you sure you want to clone the form:</p>
-                <h4><strong id="gfcwp-clone-form-name"></strong></h4>
-                <p>(including payment feeds, notifications, and confirmations)?
-                </p>
+                <h3 style="margin:0px;">Are you sure you want to clone the form:<br/> <strong id="gfcwp-clone-form-name"></strong></h3>
+                <p style="margin-top:0.5rem;">(including payment feeds, notifications, and confirmations)?</p>
+                <p><strong>After you have cloned, please do the following:</strong></p>
+                <ul>
+                    <li>- Change the name of the form</li>
+                    <li>- Rename the feed for NMI and Stripe with this format. Example: “Stripe Feed - [Your Event Name]"</li>
+                    <li>- Check all Confirmations and Notifications to be appropriate for your event: including contact name and email, Program Name, Event Name, etc. These appear in multiple places</li>
+                    <li>- Add program specifics where needed (for instance, STP events need AASECT language)</li>
+                </ul>
             </div>
             <style>
                 .ui-dialog-buttonpane {
