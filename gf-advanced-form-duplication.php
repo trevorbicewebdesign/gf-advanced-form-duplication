@@ -592,13 +592,19 @@ class GF_Clone_With_Payments_Plugin
         $form = GFAPI::get_form($form_id);
         $form_name = esc_attr($form['title'] ?? 'Untitled');
 
-        $actions[] = sprintf(
-            '<a href="%s" title="%s" class="gfcwp-clone-link" data-form-name="%s">%s</a>',
-            esc_url($url),
-            esc_attr__('Clone this form with payment feeds', 'gf-clone-with-payments'),
-            $form_name,
-            esc_html__('Clone with Payments', 'gf-clone-with-payments')
-        );
+        // Gravity Forms adds spacers " | " between each action by joining the array with " | "
+        // Example: implode( ' | ', $actions )
+        // So each element in $actions is a separate link, and the " | " is added when rendering.
+
+        $actions['clone_with_payments'] = [
+            'label'       => esc_html__('Clone with Payments', 'gf-clone-with-payments'),
+            'url'         => esc_url($url),
+            'link_class'  => 'gfcwp-clone-link',
+            'menu_class'  => '',
+            'aria-label'  => esc_attr__('Clone this form with payment feeds', 'gf-clone-with-payments'),
+            'data-form-name' => $form_name,
+            'priority'    => 550,
+        ];
 
         return $actions;
     }
