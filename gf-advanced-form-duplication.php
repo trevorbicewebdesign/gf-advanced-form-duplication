@@ -538,27 +538,41 @@ class GF_Clone_With_Payments_Plugin
                     box-sizing: border-box !important;
                     width: 100% !important;
                 }
+                /* Make the modal wider */
+                .ui-dialog {
+                    max-width: 100% !important;
+                    width: 500px !important;
+                }
+                .ui-helper-clearfix:after {
+                    content: "";
+                    display: table;
+                    clear: both;
+                }
             </style>
-            <script>
-                jQuery(document).ready(function ($) {
-                    $('a.gfcwp-clone-link').on('click', function (e) {
-                        e.preventDefault();
-                        var href = $(this).attr('href');
-                        var formName = $(this).data('form-name');
-                        $('#gfcwp-clone-form-name').text(formName);
+            <script type="text/javascript">
+                jQuery(function ($) {
+                    // Ensure the modal exists before binding
+                    if ($('#gfcwp-clone-modal').length) {
+                        $('a.gfcwp-clone-link').on('click', function (e) {
+                            e.preventDefault();
+                            var href = $(this).attr('href');
+                            var formName = $(this).data('form-name');
+                            $('#gfcwp-clone-form-name').text(formName);
 
-                        $("#gfcwp-clone-modal").dialog({
-                            modal: true,
-                            buttons: {
-                                "Yes, Clone": function () {
-                                    window.location = href;
-                                },
-                                Cancel: function () {
-                                    $(this).dialog("close");
+                            $("#gfcwp-clone-modal").dialog({
+                                modal: true,
+                                width: 500,
+                                buttons: {
+                                    "Yes, Clone": function () {
+                                        window.location = href;
+                                    },
+                                    Cancel: function () {
+                                        $(this).dialog("close");
+                                    }
                                 }
-                            }
+                            });
                         });
-                    });
+                    }
                 });
             </script>
             <?php
@@ -596,15 +610,14 @@ class GF_Clone_With_Payments_Plugin
         // Example: implode( ' | ', $actions )
         // So each element in $actions is a separate link, and the " | " is added when rendering.
 
-        $actions['clone_with_payments'] = [
-            'label'       => esc_html__('Clone with Payments', 'gf-clone-with-payments'),
-            'url'         => esc_url($url),
-            'link_class'  => 'gfcwp-clone-link',
-            'menu_class'  => '',
-            'aria-label'  => esc_attr__('Clone this form with payment feeds', 'gf-clone-with-payments'),
-            'data-form-name' => $form_name,
-            'priority'    => 550,
-        ];
+        $actions['clone_with_payments'] = sprintf(
+            '<a href="%s" class="gfcwp-clone-link" aria-label="%s" data-form-name="%s" data-form="%d">%s</a>',
+            esc_url($url),
+            esc_attr__('Clone this form with payment feeds', 'gf-clone-with-payments'),
+            $form_name,
+            $form_id,
+            esc_html__('Clone with Payments', 'gf-clone-with-payments')
+        );
 
         return $actions;
     }
